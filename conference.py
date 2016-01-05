@@ -96,6 +96,11 @@ SESSION_GET_BY_SPEAKER_REQUEST = endpoints.ResourceContainer(
     speaker=messages.StringField(1),
 )
 
+SESSION_GET_REQUEST = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    websafeSessionKey=messages.StringField(1),
+)
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 
@@ -605,7 +610,6 @@ class ConferenceApi(remote.Service):
     def getSessionsBySpeaker(self, request):
         """Given a speaker, return all sessions given by this particular speaker,
         across all conferences."""
-        print 'getSessionsBySpeaker'
         sessions = Session.query(Session.speaker == request.speaker)
         return SessionForms(
             items=[self._copySessionToForm(session) for session in sessions],
@@ -613,11 +617,10 @@ class ConferenceApi(remote.Service):
     
     @endpoints.method(SessionForm, SessionForm,
             path='createSession',
-            http_method='GET', name='createSession')
+            http_method='POST', name='createSession')
     def createSession(self, request):
         """Create a session for the conference. Only open to the organizer
         of the conference."""
-        print 'createSession'
         user = endpoints.get_current_user()
         if not user:
             raise endpoints.UnauthorizedException('Authorization required')
@@ -632,7 +635,6 @@ class ConferenceApi(remote.Service):
 
         # copy ConferenceForm/ProtoRPC Message into dict
         data = {field.name: getattr(request, field.name) for field in request.all_fields()}
-        print "Data gathered: ", data
         del data['websafeConferenceKey']
 
         # rename highlights to description
@@ -654,9 +656,46 @@ class ConferenceApi(remote.Service):
         session_id = Session.allocate_ids(size=1, parent=conference_key)[0]
         session_key = ndb.Key(Session, session_id, parent=conference_key)
         data['key'] = session_key
-        print "Data creating: ", data
         Session(**data).put()
         return request
+
+    @endpoints.method(SESSION_GET_REQUEST, BooleanMessage,
+                      path='addSessionToWishlist',
+                      http_method='POST', name='addSessionToWishlist')
+    def addSessionToWishlist(self, request):
+        """Add the session to the user's wishlist."""
+        session_key = ndb.Key(urlsafe=request.websafeSessionKey)
+        profile = self._getProfileFromUser()
+        profile.sessionWishlist.append(session_key)
+        profile.put()
+        return BooleanMessage(data=True)
+
+    @endpoints.method(message_types.VoidMessage, SessionForms,
+                      path='getSessionsInWishlist',
+                      http_method='GET', name='getSessionsInWishlist')
+    def getSessionsInWishlist(self, request):
+        """Get a list of all sessions in the user's wishlist."""
+        profile = self._getProfileFromUser()
+        if not profile.sessionWishlist:
+            return SessionForms()
+        sessions = Session.query(Session.key.IN(profile.sessionWishlist))
+        return SessionForms(
+                items=[self._copySessionToForm(session) for session in sessions],
+        )
+
+    @endpoints.method(SESSION_GET_REQUEST, BooleanMessage,
+                      path='deleteSessionsInWishlist',
+                      http_method='POST', name='deleteSessionsInWishlist')
+    def deleteSessionsInWishlist(self, request):
+        """Deletes the session from the user's wishlist. If it is not in the wishlist, do nothing."""
+        profile = self._getProfileFromUser()
+        session_key = ndb.Key(urlsafe=request.websafeSessionKey)
+        return_value = False
+        if session_key in profile.sessionWishlist:
+            profile.sessionWishlist.remove(session_key)
+            profile.put()
+            return_value = True
+        return BooleanMessage(data=return_value)
 
 
 api = endpoints.api_server([ConferenceApi]) # register API
