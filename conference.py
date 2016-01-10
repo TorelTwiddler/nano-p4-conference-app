@@ -641,6 +641,9 @@ class ConferenceApi(remote.Service):
         data['description'] = data.get('highlights', '')
         del data['highlights']
 
+        if 'websafeKey' in data:
+            del data['websafeKey']
+
         # add default values for those missing (both data model & outbound Message)
         # for df in DEFAULTS:
             # if data[df] in (None, []):
@@ -696,6 +699,36 @@ class ConferenceApi(remote.Service):
             profile.put()
             return_value = True
         return BooleanMessage(data=return_value)
+
+    @endpoints.method(message_types.VoidMessage, SessionForms,
+                      path='getSessionsToday',
+                      http_method='GET', name='getSessionsToday')
+    def getSessionsToday(self, request):
+        """Get a list of the sessions that are scheduled for today that are in conferences that the user
+        is registered to."""
+        profile = self._getProfileFromUser()
+        today = datetime.today().date()  # .strftime("%Y-%m-%d")
+
+        sessions = []
+        for conference_key in profile.conferenceKeysToAttend:
+            sessions.extend(Session.query(Session.date == today, ancestor=ndb.Key(urlsafe=conference_key)).fetch())
+        return SessionForms(
+            items=[self._copySessionToForm(session) for session in sessions]
+        )
+
+    @endpoints.method(message_types.VoidMessage, SessionForms,
+                      path='getSessionsTodayInWishlist',
+                      http_method='GET', name='getSessionsTodayInWishlist')
+    def getSessionsTodayInWishlist(self, request):
+        """Get a list of the session that are scheduled for today that are on their wishlist."""
+        profile = self._getProfileFromUser()
+        if not profile.sessionWishlist:
+            return SessionForms()
+        today = datetime.today().date()  # .strftime("%Y-%m-%d")
+        sessions = Session.query(Session.key.IN(profile.sessionWishlist), Session.date == today)
+        return SessionForms(
+            items=[self._copySessionToForm(session) for session in sessions]
+        )
 
 
 api = endpoints.api_server([ConferenceApi]) # register API
