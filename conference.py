@@ -50,6 +50,8 @@ API_EXPLORER_CLIENT_ID = endpoints.API_EXPLORER_CLIENT_ID
 MEMCACHE_ANNOUNCEMENTS_KEY = "RECENT_ANNOUNCEMENTS"
 ANNOUNCEMENT_TPL = ('Last chance to attend! The following conferences '
                     'are nearly sold out: %s')
+FEATURED_SPEAKER_KEY = "FEATURED_SPEAKER"
+FEATURED_SPEAKER_TEMPLATE = "Current featured speaker: {speaker}!\n{sessions}"
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 DEFAULTS = {
@@ -457,6 +459,26 @@ class ConferenceApi(remote.Service):
         return StringMessage(data=memcache.get(MEMCACHE_ANNOUNCEMENTS_KEY) or "")
 
 
+# ----- Featured Speaker ----------------------------------
+
+    @staticmethod
+    def featuredSpeaker(speaker, websafeConferenceKey):
+        """Marks a speaker as featured if they are speaking at more than
+        one session for this conference."""
+        sessions = Session.query(Session.speaker == speaker, ancestor=ndb.Key(urlsafe=websafeConferenceKey)).fetch()
+        if len(sessions) <= 1:
+            return
+        template = FEATURED_SPEAKER_TEMPLATE.format(speaker=speaker, sessions='\n'.join((session.name
+                                                                                         for session in sessions)))
+        memcache.set(FEATURED_SPEAKER_KEY, template)
+
+    @endpoints.method(message_types.VoidMessage, StringMessage,
+                      path='getFeaturedSpeaker',
+                      http_method='GET', name='getFeaturedSpeaker')
+    def getFeaturedSpeaker(self, request):
+        """Return the Featured Speaker from memcache."""
+        return StringMessage(data=memcache.get(FEATURED_SPEAKER_KEY) or "")
+
 # - - - Registration - - - - - - - - - - - - - - - - - - - -
 
     @ndb.transactional(xg=True)
@@ -660,6 +682,10 @@ class ConferenceApi(remote.Service):
         session_key = ndb.Key(Session, session_id, parent=conference_key)
         data['key'] = session_key
         Session(**data).put()
+        taskqueue.add(params={'speaker': data['speaker'],
+                              'websafeConferenceKey': request.websafeConferenceKey},
+                      url='/tasks/set_featured_speaker'
+                      )
         return request
 
     @endpoints.method(SESSION_GET_REQUEST, BooleanMessage,
