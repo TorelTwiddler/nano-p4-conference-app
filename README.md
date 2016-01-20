@@ -24,6 +24,47 @@ App Engine application for the Udacity training course.
 1. Deploy your application.
 
 
+## Sessions and Speakers
+
+A Session is a time, place and description that occurs during a conference. A speaker is a StringProperty on the Session.
+
+I did not implement a Speaker model to prevent unnecessary complexity to the app. In the current format, it would be trivial to search for the speaker as a string, where using a Model would add complexity without any benefit at this point. If more logic is requested for handling Speakers, then a Speaker model could be argued for.
+
+
+## Additional Queries: getSessionsToday and getSessionsTodayInWishlist
+
+getSessionsToday: Gets a list of sessions that are scheduled for today that are in conferences that the user is registered to.
+
+getSessionsTodayInWishlist: Gets a list of sessions that are scheduled for today (and registered) that are on the user's wishlist.
+
+## Task 3: Multiple Inequalities:
+
+Google App Engine Datastore does not support having filters with inequalities on more than one property. This
+means that a normal query of something like:
+
+    sessions = Session.query(Session.typeOfSession != 'workshop', Session.startTime < seven_pm).fetch()
+
+will not work.
+
+There are two simple ways to get around this limitation. The first is to perform two queries, and find the intersection
+of the results.
+
+    sessions1 = {session.key, session for session in Session.query(Session.typeOfSession != 'workshop').fetch()}
+    sessions2 = {session.key, session for session in Session.query(Session.startTime < seven_pm).fetch()}
+    keys_in_both = set(session1.keys()).intersection(set(session2.keys))
+    sessions = [session1[key] for key in keys_in_both]
+
+The downsides to this method are that it requires putting the entire query in memory which may not work for large
+queries.
+
+An alternative solution is to apply the second filter locally.
+
+    sessions = Session.query(Sessions.typeOfSession != 'workshop').fetch()
+    sessions = [session for session in sessions if session.startTime < seven_pm]
+
+The downsides to this method are that pagination would be difficult, and that many filters may drastically
+slow down the query.
+
 [1]: https://developers.google.com/appengine
 [2]: http://python.org
 [3]: https://developers.google.com/appengine/docs/python/endpoints/
